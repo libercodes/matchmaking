@@ -3,12 +3,14 @@
 /* eslint-disable class-methods-use-this */
 /* eslint-disable max-len */
 /* eslint-disable no-continue */
+import { delay } from 'lodash';
 import { v4 } from 'uuid';
+import { asyncTimeout, createMatch } from '../../helpers/mm.helper';
 import { Match, User } from '../../types/types';
 
 /* eslint-disable @typescript-eslint/no-empty-function */
-export class GameStore {
-  private static instance: GameStore = null;
+export class GameService {
+  private static instance: GameService = null;
 
   private topScore = 0;
 
@@ -21,7 +23,7 @@ export class GameStore {
   private constructor() { }
 
   public static getInstance() {
-    if (!this.instance) GameStore.instance = new GameStore();
+    if (!this.instance) GameService.instance = new GameService();
     return this.instance;
   }
 
@@ -36,40 +38,44 @@ export class GameStore {
     if (user.mmr.score > this.topScore) this.topScore = user.mmr.score;
   }
 
-  public lookForAMatch(user: User): Match | null {
+  public async lookForAMatch(user: User): Promise<Match | null> {
     const foundOpponent = this.findUserWithSimilarMMRScore(user);
-    if (!foundOpponent) return;
+    if (!foundOpponent) return null;
 
-    const match: Match = {
-      id: v4(),
-      player1: user,
-      player2: foundOpponent,
-      winner: null,
-      scoreDiff: Math.abs(user.mmr.score - foundOpponent.mmr.score),
-    };
+    const match = createMatch(user, foundOpponent);
     this.matches.push(match);
 
-    setTimeout(() => {
-      const betterMatchFound = this.checkIfBetterMatchExists(match);
-      if (betterMatchFound) this.removeMatch(match);
-      else {
-        match.started_at = new Date();
-        // Once the game starts we remove the players from the queue
-        this.leaveQueue(match.player1);
-        this.leaveQueue(match.player2);
-      }
-    }, 5000);
+    // We keep the players on the queue just to check if in the next 5 seconds a better match appears
+    // for any of the players
+
+    await asyncTimeout(5000);
+
+    const betterMatchFound = this.checkIfBetterMatchExists(match);
+    if (betterMatchFound) {
+      this.removeMatch(match);
+      return null;
+    }
+
+    // Once the game starts we remove the players from the queue meaning they are no longer available for matchup
+    match.started_at = new Date();
+    this.leaveQueue(match.player1);
+    this.leaveQueue(match.player2);
+
+    return match;
   }
 
   public leaveQueue(user: User): void {
     this.queue = this.queue.filter((x) => x.id !== user.id);
   }
 
-  public endMatch(match: Match) {
+  public disconnectUser(user: User): void {
+    this.users = this.users.filter((x) => x.id !== user.id);
+  }
+
+  public endMatch(match: Match): void {
     if (!match.winner) return;
     this.updateMMR(match, match.player1);
     this.updateMMR(match, match.player2);
-
     this.removeMatch(match);
   }
 
@@ -101,12 +107,13 @@ export class GameStore {
   private checkIfBetterMatchExists(currentMatch: Match): boolean {
     const betterMatchForP2 = this.matches.filter(
       (x) => (x.player2.id === currentMatch.player2.id || x.player1.id === currentMatch.player2.id)
-        && x.scoreDiff < currentMatch.scoreDiff,
+        && x.scoreDiff < currentMatch.scoreDiff // a match where the score difference is lower than the current match.
+        && !x.started_at, // a match that hasn't started yet
     );
 
     const betterMatchForP1 = this.matches.filter(
-      // p1 is the one that creates the match, so we don't need to check for that.
-      // p2 is the one that is "found" as an opponent
+      // we just need to check if the system found a better match for our user
+      // and since we will be the "opponent" we only need to check on player2
       (x) => (x.player2.id === currentMatch.player1.id)
           && x.scoreDiff < currentMatch.scoreDiff,
     );

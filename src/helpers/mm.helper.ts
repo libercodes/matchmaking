@@ -1,5 +1,5 @@
 import { v4 } from 'uuid';
-import { User } from '../types/types';
+import { Match, User } from '../types/types';
 
 export const createUser = (): User => {
   const user: User = {
@@ -14,3 +14,17 @@ export const createUser = (): User => {
 
   return user;
 };
+
+export const createMatch = (user: User, foundOpponent: User): Match => {
+  const match: Match = {
+    id: v4(),
+    player1: user,
+    player2: foundOpponent,
+    winner: null,
+    scoreDiff: Math.abs(user.mmr.score - foundOpponent.mmr.score),
+  };
+
+  return match;
+};
+
+export const asyncTimeout = async (ms: number) => new Promise((done) => setTimeout(done, ms));

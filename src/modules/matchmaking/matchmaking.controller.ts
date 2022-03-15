@@ -1,22 +1,23 @@
+/* eslint-disable no-constant-condition */
 /* eslint-disable no-param-reassign */
 import { RequestHandler } from 'express';
 import { io } from '../../config/socket';
 import logger from '../../helpers/logger.helper';
 import { createUser } from '../../helpers/mm.helper';
 import { Client, Events } from '../../types/types';
-import { GameStore } from './store';
+import { GameService } from './store';
 
 export const getUsersLeaderboard: RequestHandler = (req, res, next) => {
-  const store = GameStore.getInstance();
+  const store = GameService.getInstance();
   return store.users.sort((a, b) => b.mmr.score - a.mmr.score);
 };
 
 const setEventsForClient = (client: Client) => {
-  client.on(Events.join_queue, () => {
-    const store = GameStore.getInstance();
+  client.on(Events.join_queue, async () => {
+    const store = GameService.getInstance();
 
     store.joinQueue(client.user);
-    const match = store.lookForAMatch(client.user);
+    const match = await store.lookForAMatch(client.user);
     if (!match) return;
 
     // Find the opponent's socket and join both to a room.
@@ -29,28 +30,30 @@ const setEventsForClient = (client: Client) => {
 
         logger.info(`Match found p1[${match.player1}] - p2[${match.player2}] SCORE DIFF ${match.scoreDiff}`);
         io.to(match.id).emit(Events.match_started, match);
-        return match;
       }
-      return null;
     });
   });
 
   client.on(Events.leave_queue, () => {
-    const store = GameStore.getInstance();
+    const store = GameService.getInstance();
     store.leaveQueue(client.user);
   });
 
   client.on(Events.make_move, () => {
-    const store = GameStore.getInstance();
+    const store = GameService.getInstance();
     const match = store.getMatch(client.matchId);
+
     // GAME LOGIC TO HANDLE MOVE
 
-    // if there is a winner
-    // eslint-disable-next-line no-constant-condition
-    if (true) {
+    if (true) { // if there is a winner
       match.winner = match.player1.id; // just to test
       store.endMatch(match);
     }
+  });
+
+  client.on('disconnect', () => {
+    const store = GameService.getInstance();
+    store.disconnectUser(client.user);
   });
 };
 
